@@ -1,0 +1,88 @@
+Module: ServerlessPatterns.KinesisStream
+Using:
+  - Module: LambdaSharp.S3.IO:0.5@lambdasharp
+Items:
+
+  # Kinesis Stream
+  - Parameter: StreamRetentionPeriodHours
+    Section: Kinesis Stream Parameters
+    Description: Data retention for Kinesis Stream in hours
+    Type: Number
+    MinValue: 24
+    Default: 24
+
+  - Parameter: StreamShardCount
+    Section: Kinesis Stream Parameters
+    Description: Number of capacity shards
+    Type: Number
+    MinValue: 1
+    Default: 1
+
+  - Resource: Stream
+    Scope: stack
+    Description: Kinesis Stream
+    Type: AWS::Kinesis::Stream
+    Allow: Subscribe
+    Properties:
+      RetentionPeriodHours: !Ref StreamRetentionPeriodHours
+      ShardCount: !Ref StreamShardCount
+
+  # S3 Storage
+  - Parameter: BucketArn
+    Scope: StoreFunction
+    Section: S3 Storage Parameters
+    Description: Bucket for data archiving
+    Type: AWS::S3::Bucket
+    Allow: ReadWrite
+    Default: ""
+    Properties: { }
+
+  - Resource: EmptyMyBucket
+    Description: Automatically deleted contents of S3 bucket when CloudFormation stack is deleted (Don't use in production!)
+    Type: LambdaSharp::S3::EmptyBucket
+    Properties:
+      Bucket: !Ref BucketArn
+
+  - Function: StoreFunction
+    Description: Store all Kinesis events in S3 bucket
+    Memory: 1769
+    Timeout: 30
+    Sources:
+      - Kinesis: Stream
+        BatchSize: 100
+
+  # SNS Notifications
+  - Parameter: ContentCreatedTopicArn
+    Scope: public, EmitFunction
+    Section: SNS Notification Parameters
+    Description: Content Created Notification SNS Topic
+    Type: AWS::SNS::Topic
+    Allow: Publish
+    Default: ""
+    Properties: { }
+
+  - Parameter: ContentUpdatedTopicArn
+    Scope: public, EmitFunction
+    Section: SNS Notification Parameters
+    Description: Content Updated Notification SNS Topic
+    Type: AWS::SNS::Topic
+    Allow: Publish
+    Default: ""
+    Properties: { }
+
+  - Parameter: ContentDeletedTopicArn
+    Scope: public, EmitFunction
+    Section: SNS Notification Parameters
+    Description: Content Deleted Notification SNS Topic
+    Type: AWS::SNS::Topic
+    Allow: Publish
+    Default: ""
+    Properties: { }
+
+  - Function: EmitFunction
+    Description: Emit all Kinesis events to SNS topics
+    Memory: 1769
+    Timeout: 30
+    Sources:
+      - Kinesis: Stream
+        BatchSize: 100

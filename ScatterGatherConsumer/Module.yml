@@ -1,0 +1,54 @@
+Module: ServerlessPatterns.ScatterGatherConsumer
+Items:
+
+  # Import SNS topics from Kinesis Stream stack
+  - Import: ContentCreatedTopicArn
+    Module: ServerlessPatterns.KinesisStream
+
+  - Import: ContentUpdatedTopicArn
+    Module: ServerlessPatterns.KinesisStream
+
+  # Receiving Queue
+  - Resource: Queue
+    Type: AWS::SQS::Queue
+    Allow: Receive
+
+  - Resource: QueuePolicy
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Id: MyQueuePolicy
+        Statement:
+          - Sid: Allow-SNS-SendMessage
+            Effect: Allow
+            Principal: "*"
+            Action:
+              - sqs:SendMessage
+            Resource: !GetAtt Queue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn:
+                  - !Ref ContentCreatedTopicArn
+                  - !Ref ContentUpdatedTopicArn
+      Queues:
+        - !Ref Queue
+
+  - Resource: ContentCreatedSubscription
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt Queue.Arn
+      Protocol: sqs
+      TopicArn: !Ref ContentCreatedTopicArn
+
+  - Resource: ContentUpdatedSubscription
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt Queue.Arn
+      Protocol: sqs
+      TopicArn: !Ref ContentUpdatedTopicArn
+
+  - Function: ProcessFunction
+    Memory: 1769
+    Timeout: 30
+    Sources:
+      - Sqs: Queue

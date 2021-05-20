@@ -1,0 +1,114 @@
+Module: ServerlessPatterns.KinesisFirehose
+Using:
+  - Module: LambdaSharp.S3.IO:0.5@lambdasharp
+Items:
+
+  # Kinesis Firehose
+  - Resource: Firehose
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      DeliveryStreamType: DirectPut
+      ExtendedS3DestinationConfiguration:
+        RoleARN: !GetAtt FirehoseRole.Arn
+        BucketARN: !Ref BucketArn
+        CompressionFormat: GZIP
+        ProcessingConfiguration:
+          Enabled: true
+          Processors:
+            - Type: Lambda
+              Parameters:
+                - ParameterName: LambdaArn
+                  ParameterValue: !GetAtt EmitFunction.Arn
+                - ParameterName: BufferIntervalInSeconds
+                  ParameterValue: 60
+                - ParameterName: BufferSizeInMBs
+                  ParameterValue: 1
+
+  - Resource: FirehoseRole
+    Scope: public
+    Description: IAM role for logging stream to interact with other resources in this module
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: FirehosePrincipal
+            Effect: Allow
+            Principal:
+              Service: firehose.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+
+        # Give Firehose access to S3 bucket
+        - PolicyName: !Sub "${AWS::StackName}FirehoseS3Policy"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:PutObject
+                Resource:
+                  - !Ref BucketArn
+                  - !Sub "${BucketArn}/*"
+
+        # Give Firehose access to invoking the Lambda function
+        - PolicyName: !Sub "${AWS::StackName}FirehoseLambdaPolicy"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - lambda:GetFunctionConfiguration
+                Resource: !GetAtt EmitFunction.Arn
+
+  # S3 Storage
+  - Parameter: BucketArn
+    Section: S3 Storage Parameters
+    Description: Bucket for data archiving
+    Type: AWS::S3::Bucket
+    Default: ""
+    Properties: { }
+
+  - Resource: EmptyMyBucket
+    Description: Automatically deleted contents of S3 bucket when CloudFormation stack is deleted (Don't use in production!)
+    Type: LambdaSharp::S3::EmptyBucket
+    Properties:
+      Bucket: !Ref BucketArn
+
+  # SNS Notifications
+  - Parameter: ContentCreatedTopicArn
+    Scope: public, EmitFunction
+    Section: SNS Notification Parameters
+    Description: Content Created Notification SNS Topic
+    Type: AWS::SNS::Topic
+    Allow: Publish
+    Default: ""
+    Properties: { }
+
+  - Parameter: ContentUpdatedTopicArn
+    Scope: public, EmitFunction
+    Section: SNS Notification Parameters
+    Description: Content Updated Notification SNS Topic
+    Type: AWS::SNS::Topic
+    Allow: Publish
+    Default: ""
+    Properties: { }
+
+  - Parameter: ContentDeletedTopicArn
+    Scope: public, EmitFunction
+    Section: SNS Notification Parameters
+    Description: Content Deleted Notification SNS Topic
+    Type: AWS::SNS::Topic
+    Allow: Publish
+    Default: ""
+    Properties: { }
+
+  - Function: EmitFunction
+    Memory: 1769
+    Timeout: 30
